@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1>Compliance Analysis</h1>
+        <p class="lead">Our AI will analyze your business information against EU regulations to identify compliance requirements and gaps.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h3>Business Information Summary</h3>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Business Name:</strong> {{ business_info.business_name or 'Not provided' }}</p>
+                        <p><strong>Industry:</strong> {{ business_info.industry or 'Not provided' }}</p>
+                        <p><strong>Target Markets:</strong> {{ business_info.target_markets or 'Not provided' }}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>AI Systems:</strong> {{ business_info.ai_systems or 'None' }}</p>
+                        <p><strong>Online Services:</strong> {{ business_info.online_services or 'Not provided' }}</p>
+                        <p><strong>Current Compliance:</strong> {{ business_info.current_compliance or 'None' }}</p>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <a href="{{ url_for('business_info') }}" class="btn btn-outline-primary">Edit Business Information</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h3>What to Expect</h3>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="text-center mb-3">
+                            <i class="bi bi-search display-4 text-primary"></i>
+                        </div>
+                        <h5 class="text-center">Regulatory Analysis</h5>
+                        <p>Our AI will analyze your business against GDPR, Digital Services Act, and AI Act requirements.</p>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center mb-3">
+                            <i class="bi bi-exclamation-triangle display-4 text-warning"></i>
+                        </div>
+                        <h5 class="text-center">Compliance Gaps</h5>
+                        <p>Identify specific areas where your business may not meet regulatory requirements.</p>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center mb-3">
+                            <i class="bi bi-map display-4 text-success"></i>
+                        </div>
+                        <h5 class="text-center">Action Plan</h5>
+                        <p>Receive a detailed roadmap with specific actions to achieve full compliance.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h3>Analysis Process</h3>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="progress mb-4">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%" id="analysis-progress"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-3 text-center">
+                        <div class="step-indicator" id="step-1">
+                            <i class="bi bi-circle-fill text-primary"></i>
+                            <p class="mt-2">Data Collection</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3 text-center">
+                        <div class="step-indicator" id="step-2">
+                            <i class="bi bi-circle text-muted"></i>
+                            <p class="mt-2">Regulatory Analysis</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3 text-center">
+                        <div class="step-indicator" id="step-3">
+                            <i class="bi bi-circle text-muted"></i>
+                            <p class="mt-2">Gap Identification</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3 text-center">
+                        <div class="step-indicator" id="step-4">
+                            <i class="bi bi-circle text-muted"></i>
+                            <p class="mt-2">Report Generation</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h3>Start Analysis</h3>
+            </div>
+            <div class="card-body">
+                <p>The analysis typically takes 2-3 minutes to complete. You'll receive:</p>
+                <ul>
+                    <li>Comprehensive compliance report</li>
+                    <li>Detailed roadmap with action items</li>
+                    <li>Cost estimates for compliance measures</li>
+                    <li>Priority recommendations</li>
+                </ul>
+                <form method="POST" id="analysis-form">
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">Back to Dashboard</a>
+                        <button type="submit" class="btn btn-primary" id="start-analysis-btn">
+                            <i class="bi bi-play-circle"></i> Start Compliance Analysis
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4" id="analysis-status" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h3>Analysis in Progress</h3>
+            </div>
+            <div class="card-body">
+                <div class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-3">Please wait while our AI analyzes your business information...</p>
+                    <p class="text-muted">This may take a few minutes.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const analysisForm = document.getElementById('analysis-form');
+    const analysisStatus = document.getElementById('analysis-status');
+    const startAnalysisBtn = document.getElementById('start-analysis-btn');
+    const analysisProgress = document.getElementById('analysis-progress');
+    
+    analysisForm.addEventListener('submit', function(event) {
+        event.preventDefault();
+        
+        // Show analysis status
+        analysisStatus.style.display = 'block';
+        startAnalysisBtn.disabled = true;
+        startAnalysisBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Analyzing...';
+        
+        // Simulate progress updates
+        let progress = 0;
+        const progressInterval = setInterval(function() {
+            progress += 5;
+            analysisProgress.style.width = progress + '%';
+            
+            // Update step indicators
+            if (progress >= 25) {
+                document.querySelector('#step-1 i').classList.remove('text-muted');
+                document.querySelector('#step-1 i').classList.add('text-primary');
+                document.querySelector('#step-1 i').classList.remove('bi-circle');
+                document.querySelector('#step-1 i').classList.add('bi-check-circle-fill');
+            }
+            
+            if (progress >= 50) {
+                document.querySelector('#step-2 i').classList.remove('text-muted');
+                document.querySelector('#step-2 i').classList.add('text-primary');
+                document.querySelector('#step-2 i').classList.remove('bi-circle');
+                document.querySelector('#step-2 i').classList.add('bi-check-circle-fill');
+            }
+            
+            if (progress >= 75) {
+                document.querySelector('#step-3 i').classList.remove('text-muted');
+                document.querySelector('#step-3 i').classList.add('text-primary');
+                document.querySelector('#step-3 i').classList.remove('bi-circle');
+                document.querySelector('#step-3 i').classList.add('bi-check-circle-fill');
+            }
+            
+            if (progress >= 95) {
+                document.querySelector('#step-4 i').classList.remove('text-muted');
+                document.querySelector('#step-4 i').classList.add('text-primary');
+                document.querySelector('#step-4 i').classList.remove('bi-circle');
+                document.querySelector('#step-4 i').classList.add('bi-check-circle-fill');
+                
+                clearInterval(progressInterval);
+                
+                // Submit the form after progress completes
+                setTimeout(function() {
+                    analysisForm.submit();
+                }, 1000);
+            }
+        }, 200);
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1>Business Information</h1>
+        <p class="lead">Please provide details about your business to help us analyze your EU regulatory compliance requirements.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h3>Business Details</h3>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="business_name" class="form-label">Business Name</label>
+                            <input type="text" class="form-control" id="business_name" name="business_name" value="{{ business_info.business_name or '' }}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="industry" class="form-label">Industry</label>
+                            <select class="form-select" id="industry" name="industry" required>
+                                <option value="">Select Industry</option>
+                                <option value="Technology" {% if business_info.industry == 'Technology' %}selected{% endif %}>Technology</option>
+                                <option value="Healthcare" {% if business_info.industry == 'Healthcare' %}selected{% endif %}>Healthcare</option>
+                                <option value="Finance" {% if business_info.industry == 'Finance' %}selected{% endif %}>Finance</option>
+                                <option value="Retail" {% if business_info.industry == 'Retail' %}selected{% endif %}>Retail</option>
+                                <option value="Manufacturing" {% if business_info.industry == 'Manufacturing' %}selected{% endif %}>Manufacturing</option>
+                                <option value="Education" {% if business_info.industry == 'Education' %}selected{% endif %}>Education</option>
+                                <option value="Other" {% if business_info.industry == 'Other' %}selected{% endif %}>Other</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="business_activities" class="form-label">Business Activities</label>
+                        <textarea class="form-control" id="business_activities" name="business_activities" rows="3" required>{{ business_info.business_activities or '' }}</textarea>
+                        <div class="form-text">Describe your primary business activities and operations.</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="target_markets" class="form-label">Target Markets</label>
+                        <input type="text" class="form-control" id="target_markets" name="target_markets" value="{{ business_info.target_markets or '' }}" required>
+                        <div class="form-text">List the countries or regions where you operate or plan to operate.</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="data_processing" class="form-label">Data Processing Activities</label>
+                        <textarea class="form-control" id="data_processing" name="data_processing" rows="3" required>{{ business_info.data_processing or '' }}</textarea>
+                        <div class="form-text">Describe how your business collects, processes, and stores personal data.</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="ai_systems" class="form-label">AI Systems in Use</label>
+                        <textarea class="form-control" id="ai_systems" name="ai_systems" rows="3">{{ business_info.ai_systems or '' }}</textarea>
+                        <div class="form-text">List any AI systems or machine learning applications your business uses. Leave blank if none.</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="online_services" class="form-label">Online Services</label>
+                        <textarea class="form-control" id="online_services" name="online_services" rows="3" required>{{ business_info.online_services or '' }}</textarea>
+                        <div class="form-text">Describe any websites, mobile apps, or online services your business provides.</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="current_compliance" class="form-label">Current Compliance Measures</label>
+                        <textarea class="form-control" id="current_compliance" name="current_compliance" rows="3">{{ business_info.current_compliance or '' }}</textarea>
+                        <div class="form-text">Describe any existing compliance measures or certifications your business has in place.</div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-primary">Save and Continue</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h3>Why This Information Matters</h3>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <h5><i class="bi bi-shield-check text-primary"></i> GDPR Compliance</h5>
+                        <p>Your data processing activities determine your obligations under the General Data Protection Regulation.</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h5><i class="bi bi-globe text-primary"></i> Digital Services Act</h5>
+                        <p>Your online services may be subject to the Digital Services Act depending on their nature and scale.</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h5><i class="bi bi-cpu text-primary"></i> AI Act Compliance</h5>
+                        <p>Your AI systems must comply with the new EU AI Act based on their risk level and application.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form');
+    const businessName = document.getElementById('business_name');
+    const industry = document.getElementById('industry');
+    const businessActivities = document.getElementById('business_activities');
+    const targetMarkets = document.getElementById('target_markets');
+    const dataProcessing = document.getElementById('data_processing');
+    const onlineServices = document.getElementById('online_services');
+    
+    form.addEventListener('submit', function(event) {
+        let isValid = true;
+        
+        // Validate required fields
+        if (!businessName.value.trim()) {
+            businessName.classList.add('is-invalid');
+            isValid = false;
+        } else {
+            businessName.classList.remove('is-invalid');
+        }
+        
+        if (!industry.value) {
+            industry.classList.add('is-invalid');
+            isValid = false;
+        } else {
+            industry.classList.remove('is-invalid');
+        }
+        
+        if (!businessActivities.value.trim()) {
+            businessActivities.classList.add('is-invalid');
+            isValid = false;
+        } else {
+            businessActivities.classList.remove('is-invalid');
+        }
+        
+        if (!targetMarkets.value.trim()) {
+            targetMarkets.classList.add('is-invalid');
+            isValid = false;
+        } else {
+            targetMarkets.classList.remove('is-invalid');
+        }
+        
+        if (!dataProcessing.value.trim()) {
+            dataProcessing.classList.add('is-invalid');
+            isValid = false;
+        } else {
+            dataProcessing.classList.remove('is-invalid');
+        }
+        
+        if (!onlineServices.value.trim()) {
+            onlineServices.classList.add('is-invalid');
+            isValid = false;
+        } else {
+            onlineServices.classList.remove('is-invalid');
+        }
+        
+        if (!isValid) {
+            event.preventDefault();
+            alert('Please fill in all required fields.');
+        }
+    });
+});
+</script>
+{% endblock %}

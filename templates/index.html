@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="text-center mb-5">
+            <h1 class="display-4">EU Regulatory Compliance Consulting</h1>
+            <p class="lead">AI-powered compliance analysis for businesses entering the EU market</p>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="card-title">Our Services</h2>
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <i class="bi bi-shield-check display-4 text-primary mb-3"></i>
+                                <h5>GDPR Compliance</h5>
+                                <p>Comprehensive analysis of your data processing activities against GDPR requirements</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <i class="bi bi-globe display-4 text-primary mb-3"></i>
+                                <h5>Digital Services Act</h5>
+                                <p>Ensure your online services comply with the latest EU digital regulations</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <i class="bi bi-cpu display-4 text-primary mb-3"></i>
+                                <h5>AI Act Compliance</h5>
+                                <p>Navigate the new EU AI Act regulations for your AI systems and applications</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="card-title">How It Works</h2>
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <div class="d-flex align-items-start">
+                            <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 40px; height: 40px;">1</div>
+                            <div>
+                                <h5>Provide Business Information</h5>
+                                <p>Tell us about your business activities, data processing, and AI systems</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="d-flex align-items-start">
+                            <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 40px; height: 40px;">2</div>
+                            <div>
+                                <h5>AI-Powered Analysis</h5>
+                                <p>Our AI analyzes your business against EU regulations and identifies compliance gaps</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="d-flex align-items-start">
+                            <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 40px; height: 40px;">3</div>
+                            <div>
+                                <h5>Receive Compliance Roadmap</h5>
+                                <p>Get detailed reports and a step-by-step roadmap to achieve full compliance</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="card-title">Why Choose Our Service</h2>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <div class="d-flex">
+                            <i class="bi bi-check-circle-fill text-success me-2"></i>
+                            <div>
+                                <h5>AI-Powered Analysis</h5>
+                                <p>Our advanced AI system provides comprehensive compliance analysis across multiple EU regulations</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <div class="d-flex">
+                            <i class="bi bi-check-circle-fill text-success me-2"></i>
+                            <div>
+                                <h5>Up-to-Date Regulations</h5>
+                                <p>We continuously monitor and update our system with the latest regulatory changes</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <div class="d-flex">
+                            <i class="bi bi-check-circle-fill text-success me-2"></i>
+                            <div>
+                                <h5>Actionable Reports</h5>
+                                <p>Receive detailed compliance reports with specific action items and timelines</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <div class="d-flex">
+                            <i class="bi bi-check-circle-fill text-success me-2"></i>
+                            <div>
+                                <h5>Cost-Effective</h5>
+                                <p>Affordable compliance solutions without the need for expensive legal consultations</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center">
+            {% if session.client_id %}
+            <a href="{{ url_for('dashboard') }}" class="btn btn-primary btn-lg">Go to Dashboard</a>
+            {% else %}
+            <a href="{{ url_for('register') }}" class="btn btn-primary btn-lg me-2">Get Started</a>
+            <a href="{{ url_for('login') }}" class="btn btn-outline-primary btn-lg">Login</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

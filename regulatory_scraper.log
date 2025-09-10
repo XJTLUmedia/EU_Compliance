@@ -1,0 +1,715 @@
+#!/usr/bin/env python3
+"""
+eurlex_daily_scraper.py
+
+Scrape EUR-Lex "daily view" (L-series) for a given date and extract legislation items.
+
+Example:
+    python eurlex_daily_scraper.py --date 2025-09-10
+"""
+
+import argparse
+import json
+import logging
+import os
+import random
+import re
+import time
+from datetime import datetime, date
+
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+
+# ----- config -----
+BASE_DAILY_VIEW = "https://eur-lex.europa.eu/oj/daily-view/L-series/default.html"
+DATA_DIR = "regulatory_data"
+MIN_DELAY = 1.0
+MAX_DELAY = 2.5
+MAX_RETRIES = 3
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
+]
+
+# ----- logging -----
+os.makedirs(DATA_DIR, exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(os.path.join(DATA_DIR, "eurlex_scraper.log")),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+
+# ----- helpers -----
+def random_delay():
+    time.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
+
+
+def build_ojdate_param(d):
+    """
+    Accepts:
+      - datetime.date or datetime.datetime
+      - 'YYYY-MM-DD' or 'DD-MM-YYYY' or 'DDMMYYYY' strings
+    Returns string like '10092025' for 10 Sep 2025.
+    """
+    if isinstance(d, (datetime, date)):
+        return d.strftime("%d%m%Y")
+    if isinstance(d, str):
+        dstr = d.strip()
+        # YYYY-MM-DD
+        m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", dstr)
+        if m:
+            y, mo, da = m.groups()
+            return f"{int(da):02d}{int(mo):02d}{y}"
+        # DD-MM-YYYY
+        m = re.match(r"^(\d{1,2})-(\d{1,2})-(\d{4})$", dstr)
+        if m:
+            da, mo, y = m.groups()
+            return f"{int(da):02d}{int(mo):02d}{y}"
+        # DDMMYYYY
+        m = re.match(r"^(\d{2})(\d{2})(\d{4})$", dstr)
+        if m:
+            return dstr
+    raise ValueError("Unsupported date format. Use YYYY-MM-DD, DD-MM-YYYY, DDMMYYYY, or a datetime.date object.")
+
+
+def make_request(url, session=None, retries=0):
+    session = session or requests.Session()
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    try:
+        resp = session.get(url, headers=headers, timeout=25)
+        if resp.status_code == 200:
+            return resp
+        elif resp.status_code == 429 and retries < MAX_RETRIES:
+            wait = int(resp.headers.get("Retry-After", 5))
+            logger.warning(f"Rate limited. Waiting {wait}s and retrying: {url}")
+            time.sleep(wait)
+            return make_request(url, session, retries + 1)
+        elif retries < MAX_RETRIES:
+            logger.warning(f"Request status {resp.status_code} for {url}. Retrying...")
+            time.sleep(2 ** retries)
+            return make_request(url, session, retries + 1)
+        else:
+            resp.raise_for_status()
+    except Exception as e:
+        if retries < MAX_RETRIES:
+            logger.warning(f"Request error {e} for {url}. Retrying...")
+            time.sleep(1 + retries)
+            return make_request(url, session, retries + 1)
+        else:
+            raise
+
+
+def clean_text(t):
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def find_prev_button_text(el, level_class_substring):
+    """
+    Search backwards from element for a <button> whose class contains the substring
+    (e.g., 'section-level-1', 'section-level-2', 'section-level-3').
+    Returns button text or None.
+    """
+    btn = el.find_previous("button", class_=lambda c: c and level_class_substring in c)
+    if btn:
+        return clean_text(btn.get_text(" ", strip=True))
+    return None
+
+
+# ----- core scraping logic -----
+def scrape_eurlex_daily_by_date(target_date):
+    """
+    Scrape the EUR-Lex daily view for a specific date.
+    Returns a list of dicts with keys:
+      date, doc_code, title, url, section_1, section_2, section_3, snippet
+    """
+    ojdate = build_ojdate_param(target_date)
+    params = {"ojDate": ojdate}
+    url = f"{BASE_DAILY_VIEW}?&ojDate={ojdate}"
+    logger.info(f"Fetching EUR-Lex daily view for ojDate={ojdate} -> {url}")
+
+    session = requests.Session()
+    resp = make_request(url, session=session)
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    items = []
+    # find all rows with the structure used in the daily view:
+    # they typically have a row with class 'daily-view-row-spacing' containing columns
+    rows = soup.find_all("div", class_=lambda c: c and "daily-view-row-spacing" in c)
+    logger.info(f"Found {len(rows)} row containers to inspect.")
+
+    for row in rows:
+        try:
+            # doc code might be in a .col-md-2 element
+            code_div = row.find("div", class_=lambda c: c and "col-md-2" in c)
+            code = clean_text(code_div.get_text()) if code_div else None
+
+            # title and link in col-md-7 defaultUnderlined (anchor)
+            anchor = row.find("a", href=True)
+            if not anchor:
+                # sometimes the link could be deeper; try to find any <a> in the row
+                anchor = row.find("a", href=True)
+            if anchor:
+                href = anchor["href"]
+                full_url = urljoin(url, href)
+                title = clean_text(anchor.get_text())
+            else:
+                full_url = None
+                title = None
+
+            # snippet: first p inside the same container (if any)
+            snippet = ""
+            # look for a sibling container (e.g., panel-body) and find first <p>
+            container = row
+            p = container.find("p")
+            if p:
+                snippet = clean_text(p.get_text())[:800]
+
+            # find section headings by searching backward for buttons
+            section_1 = find_prev_button_text(row, "section-level-1")
+            section_2 = find_prev_button_text(row, "section-level-2")
+            section_3 = find_prev_button_text(row, "section-level-3")
+
+            items.append({
+                "date": datetime.strptime(ojdate, "%d%m%Y").date().isoformat(),
+                "doc_code": code,
+                "title": title,
+                "url": full_url,
+                "section_1": section_1,
+                "section_2": section_2,
+                "section_3": section_3,
+                "snippet": snippet,
+                "source": "eur-lex",
+                "method": "daily-view"
+            })
+        except Exception as e:
+            logger.debug(f"Error parsing row: {e}")
+            continue
+
+    logger.info(f"Parsed {len(items)} legislation items for {ojdate}.")
+    return items
+
+
+def save_results(items, target_date):
+    d = build_ojdate_param(target_date)
+    fname_json = os.path.join(DATA_DIR, f"eurlex_daily_{d}.json")
+    fname_csv = os.path.join(DATA_DIR, f"eurlex_daily_{d}.csv")
+    try:
+        with open(fname_json, "w", encoding="utf-8") as f:
+            json.dump(items, f, ensure_ascii=False, indent=2)
+        logger.info(f"Saved JSON -> {fname_json}")
+    except Exception as e:
+        logger.error(f"Error saving JSON: {e}")
+
+    try:
+        df = pd.DataFrame(items)
+        df.to_csv(fname_csv, index=False)
+        logger.info(f"Saved CSV -> {fname_csv}")
+    except Exception as e:
+        logger.error(f"Error saving CSV: {e}")
+
+
+# ----- CLI entrypoint -----
+def main():
+    parser = argparse.ArgumentParser(description="Scrape EUR-Lex daily legislation by date.")
+    parser.add_argument("--date", "-d", required=True,
+                        help="Date to scrape. Formats: YYYY-MM-DD, DD-MM-YYYY, DDMMYYYY")
+    args = parser.parse_args()
+
+    items = scrape_eurlex_daily_by_date(args.date)
+    if not items:
+        logger.warning("No items found for the requested date.")
+    else:
+        save_results(items, args.date)
+        # print small summary
+        df = pd.DataFrame(items)
+        print(df[["doc_code", "title", "url", "section_1", "section_2"]].to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()
+2025-09-10 21:39:39,757 - eu_regulatory_scraper - INFO - Probing seed site for feeds/links: https://eur-lex.europa.eu
+2025-09-10 21:40:09,776 - eu_regulatory_scraper - ERROR - Request error: HTTPSConnectionPool(host='eur-lex.europa.eu', port=443): Read timed out. (read timeout=30)
+2025-09-10 21:40:09,776 - eu_regulatory_scraper - INFO - Retry 1/3 for URL: https://eur-lex.europa.eu
+2025-09-10 21:40:11,657 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:11,657 - eu_regulatory_scraper - INFO - Retry 1/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:12,453 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:12,454 - eu_regulatory_scraper - INFO - Retry 2/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:13,317 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:13,317 - eu_regulatory_scraper - INFO - Retry 3/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:14,095 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:14,096 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:14,096 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:14,096 - eu_regulatory_scraper - INFO - Retry 3/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:15,306 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:15,306 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:15,306 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:15,306 - eu_regulatory_scraper - INFO - Retry 2/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:16,011 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:16,011 - eu_regulatory_scraper - INFO - Retry 3/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:16,786 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:16,786 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:16,786 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:16,786 - eu_regulatory_scraper - INFO - Retry 3/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:17,843 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:17,844 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:17,844 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:17,844 - eu_regulatory_scraper - INFO - Retry 1/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:18,890 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:18,891 - eu_regulatory_scraper - INFO - Retry 2/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:19,553 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:19,553 - eu_regulatory_scraper - INFO - Retry 3/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:20,284 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:20,285 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:20,285 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:20,285 - eu_regulatory_scraper - INFO - Retry 3/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:20,979 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:20,980 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:20,980 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:20,980 - eu_regulatory_scraper - INFO - Retry 2/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:21,734 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:21,734 - eu_regulatory_scraper - INFO - Retry 3/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:22,739 - eu_regulatory_scraper - ERROR - Request failed with status 404: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <!-- Real Mobile device specific utils  -->
+    
+
+      
+
+
+     
+
+    <meta charset="utf-8">
+    
+    <meta htt
+2025-09-10 21:40:22,739 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:22,739 - eu_regulatory_scraper - ERROR - Request error: Max retries exceeded for URL: https://eur-lex.europa.eu/feed
+2025-09-10 21:40:22,739 - eu_regulatory_scraper - INFO - Retry 3/3 for URL: https://eur-lex.europa.eu/feed
+2025-09-10 22:28:27,171 - eu_regulatory_scraper - INFO - Configured regulation_sources: ['eur-lex']
+2025-09-10 22:28:27,175 - eu_regulatory_scraper - INFO - Configured regulation_sources: ['eur-lex']
+2025-09-10 22:28:27,175 - eu_regulatory_scraper - INFO - Configured regulation_sources: ['eur-lex']
+2025-09-10 22:28:27,175 - __main__ - INFO - Compliance Service initialized
+2025-09-10 22:28:27,175 - __main__ - INFO - Starting all services...
+2025-09-10 22:28:27,175 - __main__ - INFO - Starting Compliance Monitoring System...
+2025-09-10 22:28:27,175 - __main__ - INFO - Starting Web Application Server...
+2025-09-10 22:28:27,175 - monitoring_system - INFO - Monitoring system started. Checking for updates every 24 hours.
+2025-09-10 22:28:27,176 - __main__ - INFO - Database initialized
+2025-09-10 22:28:27,187 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5001
+ * Running on http://192.168.0.105:5001
+2025-09-10 22:28:27,187 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-09-10 22:28:34,138 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:28:34] "GET / HTTP/1.1" 200 -
+2025-09-10 22:28:40,210 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:28:40] "GET /register HTTP/1.1" 200 -
+2025-09-10 22:29:08,731 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:29:08] "[32mPOST /register HTTP/1.1[0m" 302 -
+2025-09-10 22:29:08,764 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:29:08] "GET /login HTTP/1.1" 200 -
+2025-09-10 22:29:19,135 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:29:19] "[32mPOST /login HTTP/1.1[0m" 302 -
+2025-09-10 22:29:19,182 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:29:19] "GET /dashboard HTTP/1.1" 200 -
+2025-09-10 22:29:19,193 - eu_regulatory_scraper - INFO - Checking all discovered regulation sources for updates
+2025-09-10 22:29:19,194 - eu_regulatory_scraper - INFO - Checking all discovered regulation sources for updates
+2025-09-10 22:29:19,194 - eu_regulatory_scraper - INFO - Scraping updates for requested key: eur-lex
+2025-09-10 22:29:19,194 - eu_regulatory_scraper - INFO - Scraping updates for requested key: eur-lex
+2025-09-10 22:29:19,194 - eu_regulatory_scraper - INFO - Fetching EUR-Lex daily view for ojDate=10092025
+2025-09-10 22:29:19,194 - eu_regulatory_scraper - INFO - Fetching EUR-Lex daily view for ojDate=10092025
+2025-09-10 22:29:21,660 - eu_regulatory_scraper - INFO - EUR-Lex daily view: found 12 row containers
+2025-09-10 22:29:21,662 - eu_regulatory_scraper - INFO - Saved 12 updates to regulatory_data/eur-lex_20250910.json
+2025-09-10 22:29:21,662 - eu_regulatory_scraper - INFO - Scraped 12 items for ojDate=10092025
+2025-09-10 22:29:22,479 - eu_regulatory_scraper - INFO - EUR-Lex daily view: found 12 row containers
+2025-09-10 22:29:22,481 - eu_regulatory_scraper - INFO - Saved 12 updates to regulatory_data/eur-lex_20250910.json
+2025-09-10 22:29:22,481 - eu_regulatory_scraper - INFO - Scraped 12 items for ojDate=10092025
+2025-09-10 22:29:22,663 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:29:22] "GET /api/regulatory-updates HTTP/1.1" 200 -
+2025-09-10 22:29:23,486 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:29:23] "GET /api/regulatory-updates HTTP/1.1" 200 -
+2025-09-10 22:29:42,323 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:29:42] "GET /business-info HTTP/1.1" 200 -
+2025-09-10 22:29:49,558 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:29:49] "GET / HTTP/1.1" 200 -
+2025-09-10 22:29:55,531 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:29:55] "GET /dashboard HTTP/1.1" 200 -
+2025-09-10 22:29:55,555 - eu_regulatory_scraper - INFO - Checking all discovered regulation sources for updates
+2025-09-10 22:29:55,555 - eu_regulatory_scraper - INFO - Scraping updates for requested key: eur-lex
+2025-09-10 22:29:55,556 - eu_regulatory_scraper - INFO - Checking all discovered regulation sources for updates
+2025-09-10 22:29:55,556 - eu_regulatory_scraper - INFO - Fetching EUR-Lex daily view for ojDate=10092025
+2025-09-10 22:29:55,556 - eu_regulatory_scraper - INFO - Scraping updates for requested key: eur-lex
+2025-09-10 22:29:55,558 - eu_regulatory_scraper - INFO - Fetching EUR-Lex daily view for ojDate=10092025
+2025-09-10 22:29:56,785 - eu_regulatory_scraper - INFO - EUR-Lex daily view: found 12 row containers
+2025-09-10 22:29:56,786 - eu_regulatory_scraper - INFO - Saved 12 updates to regulatory_data/eur-lex_20250910.json
+2025-09-10 22:29:56,786 - eu_regulatory_scraper - INFO - Scraped 12 items for ojDate=10092025
+2025-09-10 22:29:56,986 - eu_regulatory_scraper - INFO - EUR-Lex daily view: found 12 row containers
+2025-09-10 22:29:56,987 - eu_regulatory_scraper - INFO - Saved 12 updates to regulatory_data/eur-lex_20250910.json
+2025-09-10 22:29:56,987 - eu_regulatory_scraper - INFO - Scraped 12 items for ojDate=10092025
+2025-09-10 22:29:57,792 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:29:57] "GET /api/regulatory-updates HTTP/1.1" 200 -
+2025-09-10 22:29:57,993 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:29:57] "GET /api/regulatory-updates HTTP/1.1" 200 -
+2025-09-10 22:30:13,214 - werkzeug - INFO - 127.0.0.1 - - [10/Sep/2025 22:30:13] "GET / HTTP/1.1" 200 -
+2025-09-10 22:30:20,202 - __main__ - INFO - Received signal 2, shutting down...
+2025-09-10 22:30:20,202 - __main__ - INFO - Shutting down Compliance Service...
+2025-09-10 22:30:25,206 - __main__ - INFO - Compliance Service shutdown complete

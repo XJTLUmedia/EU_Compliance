@@ -1,0 +1,35 @@
+{
+  "deepseek_api_key": "your-deepseek-api-key",
+  "email": {
+    "smtp_server": "smtp.gmail.com",
+    "smtp_port": 587,
+    "username": "your-email@gmail.com",
+    "password": "your-app-password"
+  },
+  "monitoring": {
+    "check_interval_hours": 24,
+    "alert_threshold": 3
+  },
+  "web_app": {
+    "secret_key": "your-very-secure-secret-key-here",
+    "host": "0.0.0.0",
+    "port": 5001,
+    "debug": false
+  },
+  "reports": {
+    "output_dir": "reports",
+    "logo_path": "static/logo.png"
+  },
+  "database": {
+    "type": "sqlite",
+    "path": "compliance.db"
+  },
+  "deepseek": {
+    "api_base": "https://api.deepseek.com/v1",
+    "model": "deepseek_reasoner",
+    "max_tokens": 2000,
+    "temperature": 0.3,
+    "max_retries": 3,
+    "retry_delay": 1
+  }
+}
